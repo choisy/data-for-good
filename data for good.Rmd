@@ -1,0 +1,546 @@
+---
+title: "Data for good for Vietnam"
+output:
+  html_document:
+    theme: cerulean
+    toc: yes
+  pdf_document:
+    toc: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+<!--
+IMAGES:
+Insert them with: ![alt text](image.png)
+You can also resize them if needed: convert image.png -resize 50% image.png
+If you want to center the image, go through HTML code:
+<div style="text-align:center"><img src ="image.png"/></div>
+
+REFERENCES:
+For references: Put all the bibTeX references in the file "references.bib"
+in the current folder and cite the references as @key or [@key] in the text.
+Uncomment the bibliography field in the above header and put a "References"
+title wherever you want to display the reference list.
+-->
+
+<style type="text/css">
+.main-container {
+  max-width: 1370px;
+  margin-left: auto;
+  margin-right: auto;
+}
+</style>
+
+```{r general options, include = FALSE}
+knitr::knit_hooks$set(
+  margin = function(before, options, envir) {
+    if (before) par(mgp = c(1.5, .5, 0), bty = "n", plt = c(.105, .97, .13, .97))
+    else NULL
+  },
+  prompt = function(before, options, envir) {
+    options(prompt = if (options$engine %in% c("sh", "bash")) "$ " else "> ")
+  })
+
+knitr::opts_chunk$set(margin = TRUE, prompt = TRUE, comment = "",
+                      warning = FALSE, message = FALSE,
+                      collapse = TRUE, cache = FALSE, autodep = TRUE,
+                      dev.args = list(pointsize = 11), fig.height = 3.5,
+                      fig.width = 4.24725, fig.retina = 2, fig.align = "center")
+
+options(width = 137)
+```
+
+## Packages
+
+```{r}
+library(magrittr)
+library(readr)
+library(sf)
+library(purrr)
+library(lubridate)
+library(dplyr)
+```
+
+## Downloading the data
+
+### Data for good
+
+Let's download the daily movement file (291.5 MB, takes about 1'20'' to download):
+
+```{r eval = FALSE}
+download.file("URL here", "tet_daily_mvt.zip")
+```
+
+Unzip it (takes less than 10'' and it produces a CSV file of 1.8 GB):
+
+```{r eval = FALSE}
+unzip("tet_daily_mvt.zip")
+```
+
+Load it (takes about 30'' and 242.3 MB in memory):
+
+```{r eval = FALSE}
+mvts <- "Vietnam_Disease_Prevention_Map_Tet_Holiday_Dec_17_2019_Daily_Movement.csv" %>%
+  read_csv(col_types = "Tccdddddddd") %>% 
+  select(-z_score, -n_baseline, -n_difference) %>% 
+  filter(! is.na(n_crisis)) %>% 
+  mutate(n_crisis      = as.integer(n_crisis),
+         utc_date_time = with_tz(utc_date_time, "Asia/Ho_Chi_Minh")) %>% 
+  rename(date_time = utc_date_time)
+```
+
+Note that we remove the variables that we don't need here (`z_score`,
+`n_baseline` and `n_difference`) and get rid off the records with less then 10
+cases (i.e. `n_crisis == NA`). Let's now remove `Xã` from communes names
+(takes less than 10''):
+
+```{r eval = FALSE}
+mvts %<>% mutate_at(vars(ends_with("name")), sub, pattern = "Xã *", replacement = "")
+```
+
+```{r eval = FALSE, include = FALSE}
+saveRDS(mvts, "mvts.rds")
+```
+
+```{r include = FALSE}
+mvts <- readRDS("mvts.rds")
+```
+
+Let's have a look:
+
+```{r}
+mvts
+```
+
+Three points to note:
+
+* `utc_date_time` refers to the end time;
+* `start_name` and `end_name` are communes names;
+* `start_lon`, `start_lat`, `end_lon` and `end_lat` are coordinates of (the
+centers of?) pixels.
+
+### Maps from GADM
+
+Let's now download some maps of Vietnam from [GADM](https://gadm.org) (takes
+about 40'' for a total of 7.2 MB): 
+
+```{r eval = FALSE}
+download.file("https://biogeo.ucdavis.edu/data/gadm3.6/Rsf/gadm36_VNM_0_sf.rds", 
+              "gadm36_VNM_0_sf.rds")
+download.file("https://biogeo.ucdavis.edu/data/gadm3.6/Rsf/gadm36_VNM_1_sf.rds", 
+              "gadm36_VNM_1_sf.rds")
+download.file("https://biogeo.ucdavis.edu/data/gadm3.6/Rsf/gadm36_VNM_2_sf.rds", 
+              "gadm36_VNM_2_sf.rds")
+download.file("https://biogeo.ucdavis.edu/data/gadm3.6/Rsf/gadm36_VNM_3_sf.rds", 
+              "gadm36_VNM_3_sf.rds")
+```
+
+And let's load them:
+
+```{r}
+vn0 <- readRDS("gadm36_VNM_0_sf.rds") # country polygon
+vn1 <- readRDS("gadm36_VNM_1_sf.rds") # provinces polygons
+vn2 <- readRDS("gadm36_VNM_2_sf.rds") # districts polygons
+vn3 <- readRDS("gadm36_VNM_3_sf.rds") # communes polygons
+```
+
+## Removing whatever occurs only outside Vietnam
+
+Let's see the locations of the records. First let's get the ranges of the
+coordinates:
+
+```{r}
+(xlim <- range(range(mvts$start_lon), range(mvts$end_lon)))
+(ylim <- range(range(mvts$start_lat), range(mvts$end_lat)))
+```
+
+And use these ranges to map the start records:
+
+```{r}
+plot(xlim, ylim, asp = 1, xlab = "longitude", ylab = "latitude", type = "n")
+maps::map(col = "grey", fill = TRUE, add = TRUE)
+with(unique(select(mvts, start_lon, start_lat)), points(start_lon, start_lat, pch = ".", col = "blue"))
+axis(1)
+axis(2)
+box(bty = "o")
+```
+
+And the end records:
+
+```{r}
+plot(xlim, ylim, asp = 1, xlab = "longitude", ylab = "latitude", type = "n")
+maps::map(col = "grey", fill = TRUE, add = TRUE)
+with(unique(select(mvts, end_lon, end_lat)), points(end_lon, end_lat, pch = ".", col = "red"))
+axis(1)
+axis(2)
+box(bty = "o")
+```
+
+This shows that we need to get rid off all the records that do not have either
+start or end in Vietnam. First we select the records that have start inside
+Vietnam (it takes about 30''):
+
+```{r eval = FALSE}
+start_sel <- mvts %>% 
+  st_as_sf(coords = c("start_lon", "start_lat"), crs = 4326) %>% 
+  st_intersects(vn0) %>% 
+  map_int(length)
+```
+
+Next the records that have end inside Vietnam (it takes about 30''):
+
+```{r eval = FALSE}
+end_sel <- mvts %>% 
+  st_as_sf(coords = c("end_lon", "end_lat"), crs = 4326) %>% 
+  st_intersects(vn0) %>% 
+  map_int(length)
+```
+
+And now getting rid off all the records that do not have at least start or end
+inside Vietnam:
+
+```{r eval = FALSE}
+mvts <- mvts[start_sel + end_sel > 0, ]
+```
+
+```{r include = FALSE, eval = FALSE}
+saveRDS(mvts, "mvts_vn.rds")
+```
+
+```{r include = FALSE}
+mvts <- readRDS("mvts_vn.rds")
+```
+
+Which gives:
+
+```{r}
+mvts
+```
+
+And, visually:
+
+```{r}
+(xlim <- range(range(mvts$start_lon), range(mvts$end_lon)))
+(ylim <- range(range(mvts$start_lat), range(mvts$end_lat)))
+```
+
+And use these ranges to map the start records:
+
+```{r}
+plot(xlim, ylim, asp = 1, xlab = "longitude", ylab = "latitude", type = "n")
+maps::map(col = "grey", fill = TRUE, add = TRUE)
+with(unique(select(mvts, start_lon, start_lat)), points(start_lon, start_lat, pch = ".", col = "blue"))
+axis(1)
+axis(2)
+box(bty = "o")
+```
+
+And the end records:
+
+```{r}
+plot(xlim, ylim, asp = 1, xlab = "longitude", ylab = "latitude", type = "n")
+maps::map(col = "grey", fill = TRUE, add = TRUE)
+with(unique(select(mvts, end_lon, end_lat)), points(end_lon, end_lat, pch = ".", col = "red"))
+axis(1)
+axis(2)
+box(bty = "o")
+```
+
+Much better!
+
+## Fixing the grid
+
+The grid resolution seems to be 0.1 degree. Phil: is it correct?
+
+Problem that we see a bit from the maps above is that the pixel coordinates do
+not seem to perfectly match a regular grid. Any idea of the reason of that?
+Let's try here to fix the grid.
+
+First, let's identify a large enough zone where the grid seems OK:
+
+```{r}
+x1 <- 105
+x2 <- 106.5
+y1 <- 20.5
+y2 <- 21.5
+```
+
+Let's for example visualize it on the start points:
+
+```{r}
+plot(xlim, ylim, asp = 1, xlab = "longitude", ylab = "latitude", type = "n")
+maps::map(col = "grey", fill = TRUE, add = TRUE)
+with(unique(select(mvts, start_lon, start_lat)), points(start_lon, start_lat, pch = ".", col = "blue"))
+polygon(c(x1, x2, x2, x1), c(y1, y1, y2, y2), border = "red")
+axis(1)
+axis(2)
+box(bty = "o")
+```
+
+And let's zoom it:
+
+```{r}
+mvts %>% 
+  filter(between(start_lon, 105, 106.5), between(start_lat, 20.5, 21.5)) %$%
+  plot(start_lon, start_lat, pch = 3, col = "blue", xlab = "longitude", ylab = "latitute")
+box(bty = "o")
+```
+
+Let's look at the errors:
+
+```{r}
+mvts %>% 
+  mutate(difference = start_lon - round(start_lon, 2)) %>% 
+  pull(difference) %>% 
+  hist(n = 100, col = "grey", main = NA)
+```
+
+I'm not quite sure about what I'm doing wrong here... TO BE CONTINUED.
+
+## Looking at temporal trends
+
+Almost 2 months of data:
+
+```{r}
+range(mvts$date_time)
+```
+
+Visually:
+
+```{r}
+first_day <- seq(ymd("2019-11-01"), ymd("2020-05-01"), "month")
+plot(first_day, rep(1, length(first_day)), axes = FALSE, ann = FALSE, type = "n", ylim = 0:1)
+axis(1, first_day, paste(month.abb[month(first_day)], sub("^\\d\\d", "", year(first_day))))
+fb_days <- as.numeric(as.Date(mvts$date_time))
+x <- range(fb_days)
+polygon(c(x, rev(x)), c(-1, -1, 2, 2), col = "pink", border = NA)
+box(bty = "o")
+abline(v = first_day, col = "grey", lwd = 2)
+```
+
+Another option:
+
+```{r}
+col <- c("7" = "#e41a1c", "15" = "#377eb8", "23" = "#4daf4a")
+
+mvts2 <- mvts %>% 
+  group_by(date_time) %>% 
+  tally() %>% 
+  arrange(date_time)
+
+with(mvts2, {
+    plot(date_time, n, type = "l", xlab = NA, ylab = "number of people",
+         ylim = c(0, 22000), axes = FALSE)
+    points(date_time, n, col = col[as.character(hour(date_time))], pch = 19)
+  })
+
+with(filter(mvts2, wday(date_time) < 2), points(date_time, n, col = col[as.character(hour(date_time))], cex = 2))
+  
+ats <- seq.POSIXt(ymd_hms("2020-01-01 00:00:00"), ymd_hms("2020-02-01 00:00:00"), "month")
+axis(1, ats, month.abb[month(ats)])
+axis(2)
+box(bty = "o")
+
+d1 <- ymd_hms("2020-01-23 00:00:00")
+d2 <- ymd_hms("2020-01-29 23:59:59")
+polygon(c(d1, d2, d2, d1), c(-1000, -1000, 25000, 25000), col = adjustcolor("red", .1), border = NA)
+
+opar <- par(plt = c(.2, .5, .2, .5), new = TRUE)
+inside_width <- .5
+pie(c(3, 3, 3), NA, clockwise = TRUE, init.angle = 285, col = col)
+plotrix::draw.circle(0, 0, inside_width, 200, col = "white") %>% 
+  data.frame() %>% 
+  filter(y < 0) %>% 
+  with(polygon(x, y, col = "black"))
+par(opar)
+```
+
+## Identifying the communes from Vinh Phuc
+
+Let's retrieve the names of the communes of Vinh Phuc
+
+```{r}
+vp_com <- vn3 %>%
+  filter(NAME_1 == "Vĩnh Phúc") %>% 
+  pull(NAME_3) %>% 
+  sort()
+```
+
+which is:
+
+```{r}
+vp_com
+```
+
+Let's now filter the records that start from Vinh Phuc: 
+
+```{r}
+from_vp <- filter(mvts, start_name %in% vp_com)
+```
+
+which is `r nrow(from_vp)` of them and the records that end up in Vinh Phuc:
+
+```{r}
+to_vp <- filter(mvts, end_name %in% vp_com)
+```
+
+which is `r nrow(to_vp)` of them. Let's check that every thing looks corrects:
+
+```{r}
+vp <- filter(vn1, VARNAME_1 == "Vinh Phuc")
+```
+
+
+```{r}
+plot(st_geometry(vp), col = "grey")
+from_vp %>% 
+  unique() %>% 
+  st_as_sf(coords = c("start_lon", "start_lat"), crs = 4326) %>% 
+  st_geometry() %>% 
+  plot(add = TRUE, pch = 3)
+```
+
+And:
+
+```{r}
+plot(st_geometry(vp), col = "grey")
+to_vp %>% 
+  unique() %>% 
+  st_as_sf(coords = c("end_lon", "end_lat"), crs = 4326) %>% 
+  st_geometry() %>% 
+  plot(add = TRUE, pch = 3)
+```
+
+Everything looks OK! But:
+
+```{r}
+plot(st_geometry(vn1), col = "grey")
+from_vp %>% 
+  unique() %>% 
+  st_as_sf(coords = c("start_lon", "start_lat"), crs = 4326) %>% 
+  st_geometry() %>% 
+  plot(add = TRUE, pch = 3)
+```
+
+And:
+
+```{r}
+plot(st_geometry(vn1), col = "grey")
+to_vp %>% 
+  unique() %>% 
+  st_as_sf(coords = c("end_lon", "end_lat"), crs = 4326) %>% 
+  st_geometry() %>% 
+  plot(add = TRUE, pch = 3)
+```
+
+We cannot rely on the communes's names and need to refine a bit...
+
+## A refinement
+
+```{r}
+from_vp %<>% 
+  st_as_sf(coords = c("start_lon", "start_lat"), crs = 4326) %>% 
+  st_intersects(vp) %>% 
+  map_lgl(~ .x %>% length() %>% as.logical()) %>% 
+  which() %>% 
+  slice(from_vp, .)
+```
+
+And:
+
+```{r}
+to_vp %<>% 
+  st_as_sf(coords = c("end_lon", "end_lat"), crs = 4326) %>% 
+  st_intersects(vp) %>% 
+  map_lgl(~ .x %>% length() %>% as.logical()) %>% 
+  which() %>% 
+  slice(to_vp, .)
+```
+
+Let's check:
+
+```{r}
+plot(st_geometry(vn1), col = "grey")
+from_vp %>% 
+  unique() %>% 
+  st_as_sf(coords = c("start_lon", "start_lat"), crs = 4326) %>% 
+  st_geometry() %>% 
+  plot(add = TRUE, pch = 3, col = "red")
+```
+
+And:
+
+```{r}
+plot(st_geometry(vn1), col = "grey")
+to_vp %>% 
+  unique() %>% 
+  st_as_sf(coords = c("end_lon", "end_lat"), crs = 4326) %>% 
+  st_geometry() %>% 
+  plot(add = TRUE, pch = 3, col = "red")
+```
+
+Now it looks good!
+
+## Plotting the links
+
+```{r}
+plot(st_geometry(vn1), col = "grey")
+with(from_vp, segments(start_lon, start_lat, end_lon, end_lat, col = "red"))
+```
+
+```{r}
+plot(st_geometry(vn1), col = "grey")
+with(to_vp, segments(start_lon, start_lat, end_lon, end_lat, col = "red"))
+```
+
+Let's look another scale:
+
+```{r}
+vn1 %>% 
+  filter(VARNAME_1 %in% c("Ha Giang", "Ha Nam")) %>% 
+  st_geometry() %>% 
+  plot(border = "white")
+plot(st_geometry(vn1), col = "grey", add = TRUE)
+with(from_vp, segments(start_lon, start_lat, end_lon, end_lat, col = "red"))
+box(bty = "o")
+```
+
+and:
+
+```{r}
+vn1 %>% 
+  filter(VARNAME_1 %in% c("Ha Giang", "Ha Nam")) %>% 
+  st_geometry() %>% 
+  plot(border = "white")
+plot(st_geometry(vn1), col = "grey", add = TRUE)
+with(to_vp, segments(start_lon, start_lat, end_lon, end_lat, col = "red"))
+box(bty = "o")
+```
+
+Zooming more:
+
+```{r}
+to_vp2 <- to_vp %>% 
+  group_by(start_name, end_name) %>% 
+  summarise(start_lon = mean(start_lon),
+            start_lat = mean(start_lat),
+            end_lon   = mean(end_lon),
+            end_lat   = mean(end_lat),
+            n_crisis  = sum(n_crisis))
+```
+
+```{r}
+x <- range(to_vp2$n_crisis)
+y <- c(.005, 50)
+m <- lm(y ~ x)
+```
+
+```{r}
+plot(st_geometry(vp), col = "grey")
+with(to_vp2, segments(start_lon, start_lat, end_lon, end_lat, lwd = predict(m, data.frame(x = n_crisis)), col = "red"))
+```
+
+Let's focus now only on those who move:
+
+

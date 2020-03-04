@@ -1,0 +1,9 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+data/*
+.DS_Store
+*.csv
+*.rds
+*.zip
