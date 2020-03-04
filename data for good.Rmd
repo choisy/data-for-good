@@ -42,11 +42,16 @@ knitr::knit_hooks$set(
     options(prompt = if (options$engine %in% c("sh", "bash")) "$ " else "> ")
   })
 
-knitr::opts_chunk$set(margin = TRUE, prompt = TRUE, comment = "",
-                      warning = FALSE, message = FALSE,
-                      collapse = TRUE, cache = FALSE, autodep = TRUE,
-                      dev.args = list(pointsize = 11), fig.height = 3.5,
-                      fig.width = 4.24725, fig.retina = 2, fig.align = "center")
+# knitr::opts_chunk$set(margin = TRUE, prompt = TRUE, comment = "",
+#                       warning = FALSE, message = FALSE,
+#                       collapse = TRUE, cache = FALSE, autodep = TRUE,
+#                       dev.args = list(pointsize = 11), fig.height = 3.5,
+#                       fig.width = 4.24725, fig.retina = 2, fig.align = "center")
+
+knitr::opts_chunk$set(margin = TRUE, echo = TRUE, warning = FALSE, message = FALSE,
+                      cache = FALSE, autodep = TRUE, dev.args = list(pointsize = 11),
+                      fig.height = 3.5, fig.width = 4.24725, fig.retina = 2, fig.align = "center")
+
 
 options(width = 137)
 ```
@@ -398,7 +403,7 @@ from_vp %>%
   unique() %>% 
   st_as_sf(coords = c("start_lon", "start_lat"), crs = 4326) %>% 
   st_geometry() %>% 
-  plot(add = TRUE, pch = 3)
+  plot(add = TRUE, pch = 3, col = "red")
 ```
 
 And:
@@ -409,7 +414,7 @@ to_vp %>%
   unique() %>% 
   st_as_sf(coords = c("end_lon", "end_lat"), crs = 4326) %>% 
   st_geometry() %>% 
-  plot(add = TRUE, pch = 3)
+  plot(add = TRUE, pch = 3, col = "blue")
 ```
 
 Everything looks OK! But:
@@ -420,7 +425,7 @@ from_vp %>%
   unique() %>% 
   st_as_sf(coords = c("start_lon", "start_lat"), crs = 4326) %>% 
   st_geometry() %>% 
-  plot(add = TRUE, pch = 3)
+  plot(add = TRUE, pch = 3, col = "red")
 ```
 
 And:
@@ -431,7 +436,7 @@ to_vp %>%
   unique() %>% 
   st_as_sf(coords = c("end_lon", "end_lat"), crs = 4326) %>% 
   st_geometry() %>% 
-  plot(add = TRUE, pch = 3)
+  plot(add = TRUE, pch = 3, col = "blue")
 ```
 
 We cannot rely on the communes's names and need to refine a bit...
@@ -477,7 +482,7 @@ to_vp %>%
   unique() %>% 
   st_as_sf(coords = c("end_lon", "end_lat"), crs = 4326) %>% 
   st_geometry() %>% 
-  plot(add = TRUE, pch = 3, col = "red")
+  plot(add = TRUE, pch = 3, col = "blue")
 ```
 
 Now it looks good!
@@ -491,7 +496,7 @@ with(from_vp, segments(start_lon, start_lat, end_lon, end_lat, col = "red"))
 
 ```{r}
 plot(st_geometry(vn1), col = "grey")
-with(to_vp, segments(start_lon, start_lat, end_lon, end_lat, col = "red"))
+with(to_vp, segments(start_lon, start_lat, end_lon, end_lat, col = "blue"))
 ```
 
 Let's look another scale:
@@ -514,7 +519,7 @@ vn1 %>%
   st_geometry() %>% 
   plot(border = "white")
 plot(st_geometry(vn1), col = "grey", add = TRUE)
-with(to_vp, segments(start_lon, start_lat, end_lon, end_lat, col = "red"))
+with(to_vp, segments(start_lon, start_lat, end_lon, end_lat, col = "blue"))
 box(bty = "o")
 ```
 
@@ -538,7 +543,7 @@ m <- lm(y ~ x)
 
 ```{r}
 plot(st_geometry(vp), col = "grey")
-with(to_vp2, segments(start_lon, start_lat, end_lon, end_lat, lwd = predict(m, data.frame(x = n_crisis)), col = "red"))
+with(to_vp2, segments(start_lon, start_lat, end_lon, end_lat, lwd = predict(m, data.frame(x = n_crisis)), col = "blue"))
 ```
 
 Let's focus now only on those who move:
